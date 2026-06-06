@@ -1,4 +1,4 @@
-import readXlsxFile from "read-excel-file/browser";
+import * as XLSX from "xlsx";
 
 export const REQUIRED_COLUMNS = [
   "科目",
@@ -24,14 +24,7 @@ export async function parseExcelFiles(files) {
 
   for (const file of files) {
     try {
-      const sheetRows = await readXlsxFile(file);
-
-      console.log("sheetRows =", sheetRows);
-      console.log("第一列 =", sheetRows?.[0]);
-
-      const normalizedRows = normalizeSheetRows(sheetRows);
-      const rows = rowsToObjects(normalizedRows);
-
+      const rows = await readWorkbookRows(file);
       validateColumns(rows, file.name);
 
       rows.forEach((row, index) => {
@@ -46,45 +39,41 @@ export async function parseExcelFiles(files) {
   return { questions: dedupeQuestions(allQuestions), errors };
 }
 
-function normalizeSheetRows(sheetRows) {
-  if (!sheetRows) return [];
+async function readWorkbookRows(file) {
+  const buffer = await file.arrayBuffer();
+  const workbook = XLSX.read(buffer, { type: "array" });
+  const firstSheetName = workbook.SheetNames[0];
 
-  if (Array.isArray(sheetRows) && Array.isArray(sheetRows[0])) {
-    return sheetRows;
+  if (!firstSheetName) {
+    throw new Error("Excel 沒有工作表");
   }
 
-  if (Array.isArray(sheetRows) && typeof sheetRows[0] === "object") {
-    const headers = REQUIRED_COLUMNS;
-    return [
-      headers,
-      ...sheetRows.map((row) => headers.map((header) => row?.[header] ?? "")),
-    ];
-  }
+  const sheet = workbook.Sheets[firstSheetName];
 
-  throw new Error("Excel 格式無法解析，請確認第一列是欄位名稱。");
+  const rows = XLSX.utils.sheet_to_json(sheet, {
+    defval: "",
+    raw: false,
+  });
+
+  return rows.map((row) => normalizeKeys(row));
 }
 
-function rowsToObjects(rows) {
-  if (!rows.length) return [];
+function normalizeKeys(row) {
+  const normalized = {};
 
-  if (!Array.isArray(rows[0])) {
-    throw new Error("Excel 第一列不是欄位列，請確認檔案格式。");
-  }
-
-  const headers = rows[0].map((cell) => text(cell));
-
-  return rows.slice(1).map((row) => {
-    const safeRow = Array.isArray(row) ? row : [];
-    return Object.fromEntries(
-      headers.map((header, index) => [header, safeRow[index] ?? ""])
-    );
+  Object.entries(row).forEach(([key, value]) => {
+    normalized[text(key)] = value;
   });
+
+  return normalized;
 }
 
 function validateColumns(rows, fileName) {
   if (!rows.length) throw new Error("Excel 沒有可讀取的資料列");
-  const columns = Object.keys(rows[0]);
+
+  const columns = Object.keys(rows[0]).map((column) => text(column));
   const missing = REQUIRED_COLUMNS.filter((name) => !columns.includes(name));
+
   if (missing.length) {
     throw new Error(`缺少欄位：${missing.join("、")}`);
   }
@@ -144,12 +133,17 @@ function splitTags(value) {
 
 function toBoolean(value) {
   if (typeof value === "boolean") return value;
-  const normalized = text(value).toLowerCase();
-  return ["true", "1", "yes", "y", "啟用", "是"].includes(normalized);
+
+  const normalized = text(value)
+    .toLowerCase()
+    .replace(/\s+/g, "");
+
+  return ["true", "1", "yes", "y", "啟用", "是", "✓", "v"].includes(normalized);
 }
 
 function dedupeQuestions(questions) {
   const seen = new Set();
+
   return questions.filter((question) => {
     const key = `${question.subject}::${question.chapter}::${question.questionNo}`;
     if (seen.has(key)) return false;
