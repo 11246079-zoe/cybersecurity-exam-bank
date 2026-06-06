@@ -25,7 +25,13 @@ export async function parseExcelFiles(files) {
   for (const file of files) {
     try {
       const sheetRows = await readXlsxFile(file);
-      const rows = rowsToObjects(sheetRows);
+
+      console.log("sheetRows =", sheetRows);
+      console.log("第一列 =", sheetRows?.[0]);
+
+      const normalizedRows = normalizeSheetRows(sheetRows);
+      const rows = rowsToObjects(normalizedRows);
+
       validateColumns(rows, file.name);
 
       rows.forEach((row, index) => {
@@ -40,12 +46,39 @@ export async function parseExcelFiles(files) {
   return { questions: dedupeQuestions(allQuestions), errors };
 }
 
+function normalizeSheetRows(sheetRows) {
+  if (!sheetRows) return [];
+
+  if (Array.isArray(sheetRows) && Array.isArray(sheetRows[0])) {
+    return sheetRows;
+  }
+
+  if (Array.isArray(sheetRows) && typeof sheetRows[0] === "object") {
+    const headers = REQUIRED_COLUMNS;
+    return [
+      headers,
+      ...sheetRows.map((row) => headers.map((header) => row?.[header] ?? "")),
+    ];
+  }
+
+  throw new Error("Excel 格式無法解析，請確認第一列是欄位名稱。");
+}
+
 function rowsToObjects(rows) {
   if (!rows.length) return [];
+
+  if (!Array.isArray(rows[0])) {
+    throw new Error("Excel 第一列不是欄位列，請確認檔案格式。");
+  }
+
   const headers = rows[0].map((cell) => text(cell));
-  return rows.slice(1).map((row) =>
-    Object.fromEntries(headers.map((header, index) => [header, row[index] ?? ""]))
-  );
+
+  return rows.slice(1).map((row) => {
+    const safeRow = Array.isArray(row) ? row : [];
+    return Object.fromEntries(
+      headers.map((header, index) => [header, safeRow[index] ?? ""])
+    );
+  });
 }
 
 function validateColumns(rows, fileName) {
