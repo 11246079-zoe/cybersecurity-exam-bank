@@ -1,15 +1,17 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   BookOpen,
   CheckCircle2,
   ClipboardList,
   FileSpreadsheet,
+  RefreshCw,
   RotateCcw,
   Search,
   Shuffle,
   Target,
   Upload,
 } from "lucide-react";
+import { loadBuiltInQuestions } from "./builtinBank.js";
 import { parseExcelFiles } from "./excel.js";
 import { loadProgress, loadQuestions, resetAllStorage, saveProgress, saveQuestions } from "./storage.js";
 import {
@@ -17,7 +19,7 @@ import {
   buildSession,
   filterByKeyword,
   getFilterOptions,
-  recordSession,
+  recordQuestion,
   summarizeQuestions,
 } from "./quiz.js";
 
@@ -31,13 +33,43 @@ export default function App() {
   const [keyword, setKeyword] = useState("");
   const [session, setSession] = useState(null);
   const [answers, setAnswers] = useState({});
+  const [confirmed, setConfirmed] = useState({});
+  const [sessionDetails, setSessionDetails] = useState([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [result, setResult] = useState(null);
   const [importMessage, setImportMessage] = useState("");
+  const [builtInLoading, setBuiltInLoading] = useState(false);
 
   const filteredQuestions = useMemo(() => filterByKeyword(questions, keyword), [questions, keyword]);
   const stats = useMemo(() => summarizeQuestions(questions, progress), [questions, progress]);
   const options = useMemo(() => getFilterOptions(questions), [questions]);
+
+  useEffect(() => {
+    if (!questions.length) loadBuiltInBank({ automatic: true });
+  }, []);
+
+  async function loadBuiltInBank({ automatic = false } = {}) {
+    if (builtInLoading) return;
+    setBuiltInLoading(true);
+    setImportMessage(automatic ? "第一次開啟，正在載入內建題庫..." : "正在重新載入內建題庫...");
+
+    try {
+      const parsed = await loadBuiltInQuestions();
+      if (!parsed.questions.length) {
+        setImportMessage(parsed.errors.length ? parsed.errors.join("；") : "內建題庫沒有讀到啟用題目。");
+        return;
+      }
+
+      const next = mergeQuestions(questions, parsed.questions);
+      saveQuestions(next);
+      setQuestions(next);
+      setImportMessage(`已載入內建題庫 ${parsed.questions.length} 題。${parsed.errors.length ? parsed.errors.join("；") : ""}`);
+    } catch (error) {
+      setImportMessage(`內建題庫載入失敗：${error.message}`);
+    } finally {
+      setBuiltInLoading(false);
+    }
+  }
 
   async function handleImport(event) {
     const files = [...event.target.files];
@@ -62,10 +94,14 @@ export default function App() {
     setResult(null);
     setSession(list);
     setAnswers({});
+    setConfirmed({});
+    setSessionDetails([]);
     setCurrentIndex(0);
   }
 
   function toggleAnswer(question, option) {
+    if (confirmed[question.id]) return;
+
     setAnswers((current) => {
       const selected = current[question.id] || [];
       const exists = selected.includes(option);
@@ -79,12 +115,29 @@ export default function App() {
     });
   }
 
-  function submitSession() {
-    if (!session?.length) return;
-    const recorded = recordSession(progress, session, answers);
+  function confirmCurrentQuestion() {
+    const question = session?.[currentIndex];
+    if (!question || confirmed[question.id]) return;
+
+    const selected = answers[question.id] || [];
+    const recorded = recordQuestion(progress, question, selected);
     saveProgress(recorded.progress);
     setProgress(recorded.progress);
-    setResult(buildResult(recorded.details));
+    setConfirmed((current) => ({ ...current, [question.id]: recorded.detail }));
+    setSessionDetails((current) => [...current, recorded.detail]);
+  }
+
+  function moveNext() {
+    if (!session) return;
+    if (currentIndex === session.length - 1) {
+      finishPractice();
+      return;
+    }
+    setCurrentIndex((index) => index + 1);
+  }
+
+  function finishPractice() {
+    setResult(buildResult(sessionDetails));
     setSession(null);
     setCurrentIndex(0);
   }
@@ -97,6 +150,8 @@ export default function App() {
     setSession(null);
     setResult(null);
     setAnswers({});
+    setConfirmed({});
+    setSessionDetails([]);
     setImportMessage("已清除本機資料。");
   }
 
@@ -106,11 +161,12 @@ export default function App() {
         questions={session}
         progress={progress}
         answers={answers}
+        confirmed={confirmed}
         currentIndex={currentIndex}
+        sessionDetails={sessionDetails}
         onSelect={toggleAnswer}
-        onPrev={() => setCurrentIndex((index) => Math.max(0, index - 1))}
-        onNext={() => setCurrentIndex((index) => Math.min(session.length - 1, index + 1))}
-        onSubmit={submitSession}
+        onConfirm={confirmCurrentQuestion}
+        onNext={moveNext}
         onExit={() => setSession(null)}
       />
     );
@@ -131,14 +187,20 @@ export default function App() {
 
       <section className="import-panel">
         <div>
-          <h2><FileSpreadsheet size={20} /> 匯入 Excel 題庫</h2>
-          <p>支援一次選取多個 `.xlsx` 檔，系統只會顯示「啟用 = TRUE」的題目。</p>
+          <h2><FileSpreadsheet size={20} /> 題庫資料</h2>
+          <p>網站會自動載入內建題庫，也可手動上傳 Excel 補充題目。</p>
         </div>
-        <label className="upload-button">
-          <Upload size={18} />
-          選擇 Excel
-          <input type="file" accept=".xlsx,.xls" multiple onChange={handleImport} />
-        </label>
+        <div className="import-actions">
+          <button type="button" onClick={() => loadBuiltInBank()} disabled={builtInLoading}>
+            <RefreshCw size={18} />
+            {builtInLoading ? "載入中" : "重新載入內建題庫"}
+          </button>
+          <label className="upload-button">
+            <Upload size={18} />
+            選擇 Excel
+            <input type="file" accept=".xlsx,.xls" multiple onChange={handleImport} />
+          </label>
+        </div>
       </section>
       {importMessage && <p className="notice">{importMessage}</p>}
 
@@ -191,7 +253,7 @@ export default function App() {
               <span>{question.type}</span>
             </article>
           ))}
-          {!filteredQuestions.length && <div className="empty-state">尚未匯入題庫，或沒有符合搜尋的題目。</div>}
+          {!filteredQuestions.length && <div className="empty-state">尚未載入題庫，或沒有符合搜尋的題目。</div>}
         </div>
       </section>
     </main>
@@ -232,17 +294,21 @@ function Dashboard({ stats }) {
               <em>{stats.chapterCompletion[chapter] || 0}%</em>
             </div>
           ))}
-          {!Object.keys(stats.byChapter).length && <p className="empty-state">匯入題庫後會顯示章節統計。</p>}
+          {!Object.keys(stats.byChapter).length && <p className="empty-state">載入題庫後會顯示章節統計。</p>}
         </div>
       </div>
     </section>
   );
 }
 
-function PracticeView({ questions, progress, answers, currentIndex, onSelect, onPrev, onNext, onSubmit, onExit }) {
+function PracticeView({ questions, progress, answers, confirmed, currentIndex, sessionDetails, onSelect, onConfirm, onNext, onExit }) {
   const question = questions[currentIndex];
   const selected = answers[question.id] || [];
-  const answeredCount = Object.keys(answers).filter((id) => answers[id]?.length).length;
+  const detail = confirmed[question.id];
+  const hasSelection = selected.length > 0;
+  const isLast = currentIndex === questions.length - 1;
+  const sessionCorrect = sessionDetails.filter((item) => item.isCorrect).length;
+  const sessionAccuracy = sessionDetails.length ? Math.round((sessionCorrect / sessionDetails.length) * 100) : 0;
 
   return (
     <main className="practice-shell">
@@ -250,9 +316,9 @@ function PracticeView({ questions, progress, answers, currentIndex, onSelect, on
         <button type="button" onClick={onExit}>返回</button>
         <div>
           <strong>第 {currentIndex + 1} / {questions.length} 題</strong>
-          <span>已練習 {progress.totalAttempts} 題</span>
+          <span>已練習 {progress.totalAttempts} 題｜正確率 {summarizeAccuracy(progress)}%</span>
         </div>
-        <button className="primary" type="button" onClick={onSubmit}>交卷</button>
+        <span className="session-pill">本回合 {sessionDetails.length} 題｜{sessionAccuracy}%</span>
       </header>
 
       <section className="question-card">
@@ -267,10 +333,11 @@ function PracticeView({ questions, progress, answers, currentIndex, onSelect, on
         <div className="option-list">
           {Object.entries(question.options).map(([key, value]) => (
             <button
-              className={`option-button ${selected.includes(key) ? "selected" : ""}`}
+              className={`option-button ${selected.includes(key) ? "selected" : ""} ${detail ? "locked" : ""}`}
               key={key}
               type="button"
               onClick={() => onSelect(question, key)}
+              disabled={Boolean(detail)}
             >
               <span>{key}</span>
               <p>{value}</p>
@@ -279,17 +346,49 @@ function PracticeView({ questions, progress, answers, currentIndex, onSelect, on
         </div>
 
         <div className="answer-hint">
-          {question.type === "多選題" ? "多選題可選擇多個答案。" : "單選題請選擇一個答案。"}
-          <strong>本回合已作答 {answeredCount} 題</strong>
+          <span>{question.type === "多選題" ? "多選題可選擇多個答案，確認前都可以修改。" : "單選題請選擇一個答案，確認前可修改。"}</span>
+          <strong>目前選擇：{selected.length ? selected.join(",") : "尚未選擇"}</strong>
         </div>
+
+        {detail && <AnswerPanel detail={detail} />}
       </section>
 
-      <footer className="practice-actions">
-        <button type="button" onClick={onPrev} disabled={currentIndex === 0}>上一題</button>
-        <button type="button" onClick={onNext} disabled={currentIndex === questions.length - 1}>下一題</button>
-        <button className="primary" type="button" onClick={onSubmit}>交卷</button>
+      <footer className="practice-actions single-action">
+        {!detail ? (
+          <button className="primary" type="button" onClick={onConfirm} disabled={!hasSelection}>
+            確認答案
+          </button>
+        ) : (
+          <button className="primary" type="button" onClick={onNext}>
+            {isLast ? "完成練習" : "下一題"}
+          </button>
+        )}
       </footer>
     </main>
+  );
+}
+
+function AnswerPanel({ detail }) {
+  const { question, selected, isCorrect } = detail;
+
+  return (
+    <div className={`answer-panel ${isCorrect ? "correct" : "wrong"}`}>
+      <div className="answer-result">
+        <strong>{isCorrect ? "答對了" : "答錯了"}</strong>
+        <span>{isCorrect ? "這題已記錄為答對。" : "這題已加入錯題複習。"}</span>
+      </div>
+      <div className="answer-grid">
+        <div>
+          <span>你的答案</span>
+          <strong>{selected.length ? selected.join(",") : "未作答"}</strong>
+        </div>
+        <div>
+          <span>正確答案</span>
+          <strong>{question.correctAnswers.join(",")}</strong>
+        </div>
+      </div>
+      <p className="explanation">{question.explanation || "此題沒有答案解釋。"}</p>
+    </div>
   );
 }
 
@@ -304,14 +403,14 @@ function ResultView({ result, onPracticeWrong }) {
       </div>
       <div className="section-heading">
         <div>
-          <h2>作答清單與解析</h2>
-          <p>每題會顯示你的答案、正確答案與答案解釋，錯題會以紅色框線標示。</p>
+          <h2>本次練習紀錄</h2>
+          <p>每題已在確認答案時寫入學習紀錄。</p>
         </div>
         <button type="button" onClick={onPracticeWrong}>練習錯題</button>
       </div>
       <div className="wrong-list">
         {result.details.map(({ question, selected, isCorrect }) => (
-          <article className={isCorrect ? "review-row correct" : "review-row wrong"} key={question.id}>
+          <article className={isCorrect ? "review-row correct" : "review-row wrong"} key={`${question.id}-${selected.join("")}`}>
             <strong>{question.chapter}｜題號 {question.questionNo}</strong>
             <p>{question.question}</p>
             <div className="review-answer">
@@ -364,6 +463,10 @@ function buildResult(details) {
     accuracy,
     details,
   };
+}
+
+function summarizeAccuracy(progress) {
+  return progress.totalAttempts ? Math.round((progress.totalCorrect / progress.totalAttempts) * 100) : 0;
 }
 
 function mergeQuestions(existing, incoming) {

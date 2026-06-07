@@ -27,46 +27,38 @@ export function buildSession(questions, mode, filters, progress) {
   return pool;
 }
 
-export function recordSession(progress, questions, answers) {
-  const next = {
-    ...progress,
-    answered: { ...progress.answered },
-    totalAttempts: progress.totalAttempts,
-    totalCorrect: progress.totalCorrect,
-    totalScore: progress.totalScore,
-    todayAttempts: progress.todayAttempts,
+export function recordQuestion(progress, question, selected) {
+  const isCorrect = answerIsCorrect(question, selected);
+  const earnedScore = isCorrect ? question.score : 0;
+  const prior = progress.answered[question.id] || { attempts: 0, correctCount: 0, wrongCount: 0 };
+
+  return {
+    progress: {
+      ...progress,
+      answered: {
+        ...progress.answered,
+        [question.id]: {
+          attempts: prior.attempts + 1,
+          correctCount: prior.correctCount + (isCorrect ? 1 : 0),
+          wrongCount: prior.wrongCount + (isCorrect ? 0 : 1),
+          lastSelected: selected,
+          lastCorrect: isCorrect,
+          lastAnsweredAt: new Date().toISOString(),
+        },
+      },
+      totalAttempts: progress.totalAttempts + 1,
+      todayAttempts: progress.todayAttempts + 1,
+      totalCorrect: progress.totalCorrect + (isCorrect ? 1 : 0),
+      totalScore: progress.totalScore + earnedScore,
+    },
+    detail: { question, selected, isCorrect, earnedScore },
   };
-
-  const details = questions.map((question) => {
-    const selected = answers[question.id] || [];
-    const isCorrect = answerIsCorrect(question, selected);
-    const prior = next.answered[question.id] || { attempts: 0, correctCount: 0, wrongCount: 0 };
-    const earnedScore = isCorrect ? question.score : 0;
-
-    next.answered[question.id] = {
-      attempts: prior.attempts + 1,
-      correctCount: prior.correctCount + (isCorrect ? 1 : 0),
-      wrongCount: prior.wrongCount + (isCorrect ? 0 : 1),
-      lastSelected: selected,
-      lastCorrect: isCorrect,
-      lastAnsweredAt: new Date().toISOString(),
-    };
-
-    next.totalAttempts += 1;
-    next.todayAttempts += 1;
-    next.totalCorrect += isCorrect ? 1 : 0;
-    next.totalScore += earnedScore;
-
-    return { question, selected, isCorrect, earnedScore };
-  });
-
-  return { progress: next, details };
 }
 
 export function summarizeQuestions(questions, progress) {
   const total = questions.length;
-  const answeredIds = Object.keys(progress.answered);
-  const practiced = answeredIds.filter((id) => questions.some((question) => question.id === id)).length;
+  const questionIds = new Set(questions.map((question) => question.id));
+  const practiced = Object.keys(progress.answered).filter((id) => questionIds.has(id)).length;
   const accuracy = progress.totalAttempts ? Math.round((progress.totalCorrect / progress.totalAttempts) * 100) : 0;
 
   const byChapter = groupCount(questions, "chapter");

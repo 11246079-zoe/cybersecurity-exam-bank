@@ -130,6 +130,20 @@ h2 {
   display: none;
 }
 
+.import-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
+.import-actions button {
+  align-items: center;
+  display: inline-flex;
+  font-weight: 800;
+  gap: 8px;
+}
+
 .notice {
   background: #fff8db;
   border: 1px solid #eadb91;
@@ -340,6 +354,17 @@ select,
   text-align: center;
 }
 
+.session-pill {
+  background: #ffffff;
+  border: 1px solid #d8e1e8;
+  border-radius: 999px;
+  color: #485868;
+  font-size: 0.88rem;
+  font-weight: 800;
+  padding: 0.48rem 0.7rem;
+  white-space: nowrap;
+}
+
 .question-card {
   padding: 24px;
 }
@@ -402,6 +427,11 @@ select,
   color: #ffffff;
 }
 
+.option-button.locked {
+  cursor: default;
+  opacity: 1;
+}
+
 .answer-hint,
 .review-answer {
   align-items: center;
@@ -412,6 +442,58 @@ select,
   margin-top: 16px;
 }
 
+.answer-panel {
+  border: 1px solid #d8e1e8;
+  border-radius: 8px;
+  display: grid;
+  gap: 14px;
+  margin-top: 18px;
+  padding: 16px;
+}
+
+.answer-panel.correct {
+  background: #eef8f0;
+  border-color: #9ecfad;
+}
+
+.answer-panel.wrong {
+  background: #fff1f1;
+  border-color: #dda1a1;
+}
+
+.answer-result {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  justify-content: space-between;
+}
+
+.answer-result strong {
+  font-size: 1.2rem;
+}
+
+.answer-grid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: 1fr 1fr;
+}
+
+.answer-grid div {
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid rgba(23, 32, 42, 0.08);
+  border-radius: 8px;
+  padding: 12px;
+}
+
+.answer-grid span {
+  color: #667789;
+  display: block;
+  font-size: 0.9rem;
+  font-weight: 800;
+  margin-bottom: 5px;
+}
+
 .practice-actions {
   bottom: 0;
   display: grid;
@@ -419,6 +501,14 @@ select,
   grid-template-columns: 1fr 1fr 1fr;
   margin-top: 16px;
   position: sticky;
+}
+
+.practice-actions.single-action {
+  grid-template-columns: 1fr;
+}
+
+.practice-actions.single-action button {
+  min-height: 52px;
 }
 
 .result-summary {
@@ -453,6 +543,16 @@ select,
   .import-panel {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .import-actions {
+    justify-content: stretch;
+  }
+
+  .import-actions button,
+  .import-actions .upload-button {
+    justify-content: center;
+    width: 100%;
   }
 
   .search-box {
@@ -499,6 +599,18 @@ select,
     grid-template-columns: auto 1fr auto;
   }
 
+  .practice-status {
+    align-items: stretch;
+    display: grid;
+    gap: 8px;
+    grid-template-columns: auto 1fr;
+  }
+
+  .practice-status .session-pill {
+    grid-column: 1 / -1;
+    text-align: center;
+  }
+
   .practice-status button {
     padding-left: 0.7rem;
     padding-right: 0.7rem;
@@ -514,6 +626,14 @@ select,
 
   .option-button {
     min-height: 76px;
+  }
+
+  .answer-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .answer-panel {
+    padding: 14px;
   }
 
   .practice-actions {
